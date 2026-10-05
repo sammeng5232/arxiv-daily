@@ -4,8 +4,8 @@
 Usage: report.py <meta.json> <paper.txt> <out.md>
 
 - Builds a structured prompt from metadata + full text (truncated to fit context).
-- Calls: claude -p --model scrp-assistant  (stdin prompt, --output-format text)
-- One retry with scrp-assistant-flash on failure.
+- Calls: claude -p --model glm-5.3  (stdin prompt, --output-format text)
+- Falls back to glm-5.3-1, then glm-5.3-2 on failure.
 """
 import json
 import os
@@ -121,7 +121,7 @@ def main():
     text = open(text_path, encoding="utf-8", errors="replace").read()
     prompt = build_prompt(meta, text)
 
-    for model in ("scrp-assistant", "scrp-assistant-flash"):
+    for model in ("glm-5.3", "glm-5.3-1", "glm-5.3-2"):
         out, info = run_claude(prompt, model)
         if out:
             with open(out_path, "w", encoding="utf-8") as f:

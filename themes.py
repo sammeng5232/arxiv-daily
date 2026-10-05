@@ -58,7 +58,7 @@ def main():
         f"[{p['n']}] **{p['title']}** - {p['tldr']} {p['tags']}" for p in papers)
     prompt = PROMPT_TEMPLATE.format(listing=listing)
 
-    for model in ("scrp-assistant", "scrp-assistant-flash"):
+    for model in ("glm-5.3", "glm-5.3-1", "glm-5.3-2"):
         out, info = report.run_claude(prompt, model)
         if out and len(out) > 80:
             print(out.strip())

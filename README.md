@@ -91,7 +91,7 @@ Done. Reports arrive every weekday, whether or not you ever log in again.
 |---|---|---|
 | arXiv category | `RSS_URL` + listing URL in `fetch_papers.py` | `econ.TH` |
 | Report language/structure | `PROMPT_TEMPLATE` in `report.py` | English, fixed section layout |
-| LLM models | `report.py` (`scrp-assistant`, fallback `scrp-assistant-flash`) | change to your endpoint's names |
+| LLM models | `report.py` (`glm-5.3` default, `glm-5.3-1` / `glm-5.3-2` fallbacks) | change to your endpoint's names |
 | Mail settings | `mail.conf` (gitignored) | Gmail SMTP 587 |
 | Schedule | `install-cron.sh` | weekdays 14:00 + 21:00 catch-up, Monday 09:00 heartbeat |
 | Max papers per run | `MAX_PAPERS` in `fetch_papers.py` | 25 |

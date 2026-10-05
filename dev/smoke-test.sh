@@ -7,7 +7,8 @@ export ARXIV_DAILY_HOME="$(pwd)"
 
 echo "=== 1. syntax check ==="
 python3 -m py_compile fetch_papers.py extract_text.py report.py send_mail.py \
-    state.py health.py themes.py build_digest.py
+    state.py health.py themes.py build_digest.py ideas.py draft.py
+bash -n run.sh run-all.sh run-ideas.sh install-cron.sh
 echo "SYNTAX-OK"
 
 echo
@@ -95,6 +96,39 @@ json.dump(m, open('$T/0000.00001.meta.json', 'w'), indent=2)
 else
   echo "(no papers/$DATE metas yet - skipping)"
 fi
+
+echo
+echo "=== 6. ideas.py: JSON parsing + batch mixing + pick logic (no LLM) ==="
+python3 - <<'EOF'
+import ideas
+
+# robust JSON array parsing
+t1 = '```json\n[{"a": 1}, {"b": 2},]\n```'
+assert ideas.parse_json_array(t1) == [{"a": 1}, {"b": 2}], "fenced+trailing-comma parse"
+t2 = 'preamble text [ {"x": "y"} ] trailing'
+assert ideas.parse_json_array(t2) == [{"x": "y"}], "embedded parse"
+assert ideas.parse_json_array("no array here") is None
+print("PARSE-JSON-OK")
+
+# mixed batches: round-robin across categories
+ds = [ {"id": f"e{i}", "cats": "econ.TH", "digest": ""} for i in range(4) ] + \
+     [ {"id": f"m{i}", "cats": "math.CO", "digest": ""} for i in range(2) ]
+b = ideas.mixed_batches(ds)
+first_ids = [d["id"] for d in b[0]]
+assert first_ids[:2] == ["e0", "m0"], f"round-robin order wrong: {first_ids}"
+assert len(b[0]) == 10 or len(b[0]) == 6
+print("MIXED-BATCH-OK")
+
+# finalize: id assignment, collision penalty, ranking
+fake = [
+    {"title": "A", "problem": "p", "quality": 9, "novelty": "collision", "source_papers": ["1"]},
+    {"title": "B", "problem": "p", "quality": 7, "novelty": "novel", "source_papers": ["1", "2"]},
+]
+out = ideas.finalize(fake, "2026-10-05")
+assert out[0]["id"] == "20261005-01" and out[0]["title"] == "B", "ranking/penalty wrong"
+assert out[0]["final"] == 8 and out[1]["final"] == 3, f"scores {out[0]['final']}, {out[1]['final']}"
+print("FINALIZE-OK")
+EOF
 
 echo
 echo "SMOKE TESTS DONE"

@@ -39,6 +39,31 @@ into several of your categories is downloaded and reported **once**, and each
 category's digest reuses the same report — no duplicate LLM work, no duplicate
 PDFs, while every email still covers its category completely.
 
+## The research layer (ideas + drafts)
+
+Every weekday evening (21:30, after the catch-up run), a second layer runs on
+top of the day's reports:
+
+1. **Associate** — batched LLM calls (10 papers each, categories mixed for
+   cross-pollination) generate research problems the day's papers *inspire but
+   do not state*, each via an explicit operator (technique-transfer,
+   flip-assumption, domain-shift, dimension-change, inverse-problem,
+   add-friction) and through quality gates (name the lemma it builds on, name
+   the proof tool, state the minimal publishable result, difficulty label)
+2. **Novelty check** — each idea's keywords are run against the arXiv API and
+   one LLM pass flags collisions/adjacent work
+3. **Draft** — the day's top 1-3 ideas (auto-picked by score, collisions
+   excluded) become LaTeX drafts: formal model setup, numbered conjectures,
+   proof attempts with every unproven step marked `[GAP: ...]` and a Gap Log
+   on page 1. Drafts are scaffolds, never fake-complete papers
+4. **Email** — one evening email with the drafts (PDF + tex attached) and the
+   runners-up one-liners; a Saturday 10:00 memo reviews the week's ideas and
+   suggests taste recalibration
+
+Everything is idempotent (re-runs reuse `ideas/<date>.json`, skip drafted
+ideas) and tuneable (`DRAFTS_PER_DAY`, default 2, auto-extends to 3 when
+enough ideas score 8+).
+
 ## The daily briefing emails
 
 - **Subject:** `[arXiv econ.TH] 2026-10-05 daily briefing - 2 papers` — one such
@@ -111,10 +136,11 @@ Done. Reports arrive every weekday, whether or not you ever log in again.
 | Report language/structure | `PROMPT_TEMPLATE` in `report.py` | English, fixed section layout |
 | LLM models | `report.py` (`glm-5.3` default, `glm-5.3-1` / `glm-5.3-2` fallbacks) | change to your endpoint's names |
 | Mail settings | `mail.conf` (gitignored) | Gmail SMTP 587 |
-| Schedule | `install-cron.sh` | weekdays 14:00 + 21:00 catch-up, Monday 09:00 heartbeat |
+| Schedule | `install-cron.sh` | weekdays 14:00 digests + 21:00 catch-up + 21:30 research layer, Mon 09:00 heartbeat, Sat 10:00 ideas memo |
 | Max papers per run | `MAX_PAPERS` in `fetch_papers.py` | 25 per category (rest → catch-up run) |
 | Retry attempts per paper | `MAX_ATTEMPTS` in `state.py` | 3 (1 try + 2 retries) |
 | PDF attachment cap | `send_mail.py` | 20 MB |
+| Drafts per day | `DRAFTS_PER_DAY` env in `run-ideas.sh` | 2 (3 when enough ideas score 8+) |
 
 ## Design notes
 
@@ -167,6 +193,9 @@ Done. Reports arrive every weekday, whether or not you ever log in again.
 arxiv-daily/
 ├── run.sh               # one cron run for ONE category (e.g. run.sh cs.GT)
 ├── run-all.sh           # loops over all categories (cron entry point)
+├── run-ideas.sh         # evening research layer (ideas + drafts + email)
+├── ideas.py             # associative idea generation + novelty check + scoring
+├── draft.py             # idea -> LaTeX draft scaffold (compiles via pdflatex)
 ├── fetch_papers.py      # per-category RSS + listing fetch, retry queue, PDF download
 ├── extract_text.py      # PDF → text (pypdf)
 ├── report.py            # LLM report generation via claude -p

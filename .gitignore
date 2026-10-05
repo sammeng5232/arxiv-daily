@@ -7,6 +7,9 @@ state/
 papers/
 logs/
 locks/
+ideas/
+drafts/
+ideas.db
 
 # python
 __pycache__/

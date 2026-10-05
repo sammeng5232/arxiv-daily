@@ -102,7 +102,7 @@ def send(conf, msg):
               f"create one at https://myaccount.google.com/apppasswords", file=sys.stderr)
         sys.exit(4)
     try:
-        with smtplib.SMTP(conf["SMTP_HOST"], int(conf.get("SMTP_PORT", "587")), timeout=60) as s:
+        with smtplib.SMTP(conf["SMTP_HOST"], int(conf.get("SMTP_PORT", "587")), timeout=300) as s:
             s.starttls()
             s.login(conf["SMTP_USER"], passwd)
             s.send_message(msg)
@@ -121,6 +121,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--paper", nargs=2, metavar=("META", "REPORT"))
     ap.add_argument("--digest", nargs=2, metavar=("DATE", "DIGESTMD"))
+    ap.add_argument("--drafts", metavar="DATE",
+                    help="daily research-draft email (ideas/<date>.json + drafts/<date>/)")
+    ap.add_argument("--raw", nargs=2, metavar=("SUBJECT", "MDFILE"),
+                    help="send an arbitrary markdown file as HTML email")
     ap.add_argument("--category", default="econ.TH",
                     help="arXiv category for the subject prefix")
     ap.add_argument("--attach-list", help="file with PDF paths to attach (one per line, 20MB cap)")
@@ -188,7 +192,82 @@ def main():
         print(f"[mail] SENT daily briefing {date} to {to}")
         return 0
 
-    ap.error("need --paper or --digest")
+    if args.raw:
+        subject, mdfile = args.raw
+        body = open(mdfile, encoding="utf-8").read()
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = frm
+        msg["To"] = to
+        msg.set_content(body)
+        msg.add_alternative(md_to_html(body), subtype="html")
+        send(conf, msg)
+        print(f"[mail] SENT raw email '{subject}' to {to}")
+        return 0
+
+    if args.drafts:
+        date = args.drafts
+        ideas_file = os.path.join(HOME_DIR, "ideas", f"{date}.json")
+        drafts_dir = os.path.join(HOME_DIR, "drafts", date)
+        ideas = json.load(open(ideas_file)) if os.path.exists(ideas_file) else []
+        drafted, atts = [], []
+        for idea in ideas:
+            ddir = os.path.join(drafts_dir, idea.get("id", ""))
+            tex = os.path.join(ddir, "main.tex")
+            if not os.path.exists(tex):
+                continue
+            drafted.append(idea)
+            for f in ("main.pdf", "main.tex"):
+                p = os.path.join(ddir, f)
+                if os.path.exists(p):
+                    atts.append(p)
+        if not drafted:
+            print("[mail] no drafts today - not sending drafts email")
+            return 0
+        body = [f"# arXiv research drafts - {date}", "",
+                f"{len(drafted)} draft(s) developed from today's papers "
+                f"({len(ideas)} ideas generated in total).", ""]
+        for idea in drafted:
+            body += ["---", "", f"## Draft: {idea.get('title', '?')} (`{idea.get('id', '?')}`)", "",
+                     f"- **Idea:** {idea.get('problem', '')}",
+                     f"- **Operator:** {idea.get('operator', '?')} | **Difficulty:** {idea.get('difficulty', '?')}",
+                     f"- **Builds on:** {idea.get('builds_on', '')}",
+                     f"- **Why tractable:** {idea.get('tractability', '')}",
+                     f"- **Minimal result:** {idea.get('minimal_result', '')}",
+                     f"- **Novelty check:** {idea.get('novelty', 'unknown')}", ""]
+        runners = [i for i in ideas if i not in drafted]
+        runners.sort(key=lambda i: i.get("final", 0), reverse=True)
+        if runners:
+            body += ["---", "", f"## Runners-up ({len(runners)} not drafted today)", ""]
+            for i in runners[:5]:
+                body.append(f"- **{i.get('title', '?')}** (score {i.get('final', '?')}, "
+                            f"{i.get('difficulty', '?')}): "
+                            f"{i.get('problem', '')[:300]}")
+        msg = EmailMessage()
+        msg["Subject"] = (f"[arXiv drafts] {date} - {len(drafted)} research draft"
+                          + ("s" if len(drafted) != 1 else "") + " from today's papers")
+        msg["From"] = frm
+        msg["To"] = to
+        body_md = "\n".join(body)
+        msg.set_content(body_md)
+        msg.add_alternative(md_to_html(body_md), subtype="html")
+        total = 0
+        for p in atts:
+            with open(p, "rb") as f:
+                data = f.read()
+            if total + len(data) > 20_000_000:
+                print(f"[mail] attachment cap reached, skipping {os.path.basename(p)}")
+                continue
+            msg.add_attachment(data, maintype="application",
+                               subtype="pdf" if p.endswith(".pdf") else "plain",
+                               filename=f"{os.path.basename(os.path.dirname(p))}-{os.path.basename(p)}")
+            total += len(data)
+        print(f"[mail] attached {len(atts)} draft file(s), {total} bytes")
+        send(conf, msg)
+        print(f"[mail] SENT drafts email {date} to {to}")
+        return 0
+
+    ap.error("need --paper, --digest, --drafts or --raw")
 
 
 if __name__ == "__main__":

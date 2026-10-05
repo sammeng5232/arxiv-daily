@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """Fetch today's new econ.TH papers from arXiv (new + cross-lists).
 
-- Primary source: RSS feed of econ.TH (reflects the current day's announcement).
+- Primary source: RSS feed of econ.TH (the current day's announcement).
+- Fallback: arxiv.org/list/econ.TH/new (live earlier than RSS; authoritative).
+  The listing page is ALSO consulted when RSS yields nothing new, so a stale
+  (non-empty but outdated) RSS feed can never hide today's announcement.
 - Enrichment: Atom API (id_list batch) for clean metadata (v1 date, authors, categories).
-- Dedup: seen.db (one arXiv ID per line). A paper is processed exactly once.
+- Dedup/retry state: seen.db via state.py - failed papers are retried on later
+  runs up to state.MAX_ATTEMPTS total attempts, then abandoned.
 - Downloads PDFs into papers/<DATE>/<id>.pdf and writes <id>.meta.json.
 
 Output: JSON list of paper dicts on stdout (for run.sh to consume).
-Exit codes: 0 ok (possibly 0 papers), 1 fatal error, 2 nothing new (shortcut).
+Exit codes: 0 ok (possibly 0 papers), 2 = suspicious empty fetch (both sources
+unusable -> run.sh sends a canary email on weekdays).
 """
 import argparse
 import json
@@ -19,17 +24,18 @@ import xml.etree.ElementTree as ET
 
 import requests
 
-DC = "{http://purl.org/dc/elements/1.1/}"
+import state
+
 ARX = "{http://arxiv.org/schemas/atom}"
 ATOM = "{http://www.w3.org/2005/Atom}"
 
 RSS_URL = "https://export.arxiv.org/rss/econ.TH"
+LISTING_URL = "https://arxiv.org/list/econ.TH/new"
 API_URL = "https://export.arxiv.org/api/query"
 PDF_URL = "https://arxiv.org/pdf/{id}"
 UA = {"User-Agent": "arxiv-daily/1.0 (automated research digest; https://github.com/sammeng5232/arxiv-daily)"}
 MAX_PAPERS = 25          # hard cap per run
 MAX_AGE_DAYS = 14        # v1 must be within N days (filters replacements of old papers)
-TEXT_TOO_BIG = 200_000   # chars
 
 HOME_DIR = os.environ.get("ARXIV_DAILY_HOME", os.path.dirname(os.path.abspath(__file__)))
 
@@ -38,40 +44,31 @@ def log(msg):
     print(f"[fetch] {msg}", file=sys.stderr, flush=True)
 
 
-def seen_ids():
-    p = os.path.join(HOME_DIR, "seen.db")
-    if not os.path.exists(p):
-        return set()
-    with open(p) as f:
-        return {line.strip() for line in f if line.strip()}
-
-
-def mark_seen(pid):
-    with open(os.path.join(HOME_DIR, "seen.db"), "a") as f:
-        f.write(pid + "\n")
-
-
 def id_from_url(url):
     m = re.search(r"abs/([0-9]{4}\.[0-9]{4,5})(v[0-9]+)?", url)
     return m.group(1) if m else None
 
 
 def listing_ids():
-    """Fallback: scrape arxiv.org/list/econ.TH/new (authoritative, live earlier than RSS).
-    Keeps New submissions + Cross-listings, excludes Replacement submissions."""
-    r = requests.get("https://arxiv.org/list/econ.TH/new", headers=UA, timeout=60)
+    """Scrape arxiv.org/list/econ.TH/new (authoritative, live earlier than RSS).
+    Returns (new_cross_ids, total_ids_on_page). Keeps New submissions +
+    Cross-listings, excludes Replacement submissions. total_ids_on_page counts
+    ALL ids on the page (incl. replacements) and is used as a health signal:
+    a healthy page always contains some ids."""
+    r = requests.get(LISTING_URL, headers=UA, timeout=60)
     r.raise_for_status()
+    total = re.findall(r"arXiv:(\d{4}\.\d{4,5})", r.text)
     cut = r.text.split("Replacement submissions")[0]
     ids, seen = [], set()
     for pid in re.findall(r"arXiv:(\d{4}\.\d{4,5})", cut):
         if pid not in seen:
             seen.add(pid)
             ids.append(pid)
-    return ids
+    return ids, len(set(total))
 
 
 def rss_paper_ids():
-    """Return list of (id, rss_title, rss_desc, rss_authors) from today's econ.TH RSS."""
+    """Return arXiv ids from the current econ.TH RSS announcement (replacements skipped)."""
     r = requests.get(RSS_URL, headers=UA, timeout=60)
     r.raise_for_status()
     root = ET.fromstring(r.content)
@@ -129,10 +126,6 @@ def api_enrich(ids):
     return meta
 
 
-def strip_html(s):
-    return re.sub(r"<[^>]+>", " ", s or "")
-
-
 def download_pdf(pid, dest):
     url = PDF_URL.format(id=pid)
     r = requests.get(url, headers=UA, timeout=180)
@@ -149,38 +142,64 @@ def download_pdf(pid, dest):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date-dir", required=True, help="papers/<DATE> directory")
-    ap.add_argument("--test-id", help="force-process this arXiv id (bypasses RSS & seen.db)")
+    ap.add_argument("--test-id", help="force-process this arXiv id (bypasses sources & state)")
     args = ap.parse_args()
 
     os.makedirs(args.date_dir, exist_ok=True)
-    seen = seen_ids()
+    st = state.load()
+
+    def is_done(pid):
+        e = st.get(pid)
+        return e is not None and state.is_done(e)
 
     if args.test_id:
-        ids = [args.test_id]
+        ids, src = [args.test_id], "test"
     else:
+        # --- source 1: RSS ---
         try:
-            ids = rss_paper_ids()
-            src = "rss"
+            rss_ids = rss_paper_ids()
         except Exception as e:
             log(f"RSS fetch failed: {e}")
-            ids, src = [], "rss-error"
-        if not ids:
-            log("RSS has no items - falling back to listing page arxiv.org/list/econ.TH/new")
-            try:
-                ids = listing_ids()
-                src = "listing-page"
-            except Exception as e:
-                log(f"listing page fetch failed: {e}")
-        if not ids:
-            log("no new papers found (rss + listing page) - nothing to do")
+            rss_ids = []
+        unseen_rss = [i for i in rss_ids if not is_done(i)]
+
+        # --- source 2: listing page (fallback when RSS empty/stale + health signal) ---
+        l_ids, l_total, l_error = [], 0, None
+        try:
+            l_ids, l_total = listing_ids()
+        except Exception as e:
+            l_error = e
+            log(f"listing page fetch failed: {e}")
+
+        suspicious = l_error is not None or l_total == 0
+        if l_total == 0 and l_error is None:
+            log("listing page fetched but contains no arXiv ids at all - suspicious (markup change?)")
+
+        if suspicious and not unseen_rss:
+            log("no usable source: RSS has nothing new and listing page unusable -> canary")
             print("[]")
-            return 0
-        log(f"source={src}: {len(ids)} candidate ids: {', '.join(ids[:10])}")
-        ids = [i for i in ids if i not in seen]
-        if not ids:
-            log("all RSS items already processed")
-            print("[]")
-            return 0
+            sys.exit(2)
+
+        if unseen_rss:
+            ids, src = unseen_rss, "rss"
+        else:
+            ids, src = [i for i in l_ids if not is_done(i)], "listing-page"
+            if not ids and (rss_ids or l_ids):
+                log("all candidate papers already processed (or retries exhausted)")
+            elif not ids:
+                log("quiet day: no new econ.TH papers announced")
+
+        # --- retry queue: failed papers with attempts remaining come back ---
+        for pid, e in sorted(st.items()):
+            if e["status"] == "fail" and e["attempts"] < state.MAX_ATTEMPTS and pid not in ids:
+                ids.append(pid)
+                src += "+retry"
+                log(f"retry-queue: adding {pid} (attempt {e['attempts'] + 1}/{state.MAX_ATTEMPTS})")
+
+    if not ids:
+        print("[]")
+        return 0
+    log(f"source={src}: {len(ids)} paper(s) to process: {', '.join(ids[:10])}")
 
     meta = api_enrich(ids)
     now = time.time()
@@ -190,7 +209,8 @@ def main():
         if not m:
             log(f"{pid}: no API metadata, skipping")
             continue
-        if not args.test_id:
+        is_retry = pid in st and st[pid]["status"] == "fail"
+        if not args.test_id and not is_retry:
             try:
                 pub_ts = time.mktime(time.strptime(m["published"][:10], "%Y-%m-%d"))
             except Exception:

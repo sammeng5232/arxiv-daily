@@ -35,8 +35,8 @@ ARX = "{http://arxiv.org/schemas/atom}"
 ATOM = "{http://www.w3.org/2005/Atom}"
 API_URL = "https://export.arxiv.org/api/query"
 PDF_URL = "https://arxiv.org/pdf/{id}"
-UA = {"User-Agent": "arxiv-daily/1.0 (automated research digest; "
-                    "https://github.com/sammeng5232/arxiv-daily)"}
+UA = {"User-Agent": "Perpetuum/1.0 (autonomous research engine; "
+                    "https://github.com/sammeng5232/perpetuum)"}
 MAX_PAPERS = 25          # hard cap per run (per category; rest -> catch-up run)
 MAX_AGE_DAYS = 14        # v1 must be within N days (filters replacements)
 

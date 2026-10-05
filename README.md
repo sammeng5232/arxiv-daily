@@ -1,10 +1,10 @@
-# arxiv-daily
+# Perpetuum
 
-Automated daily research digest for arXiv categories: **econ.TH** (economic theory),
-**cs.GT** (computer science: game theory), **cs.DM** (computer science: discrete
-mathematics) and **math.CO** (mathematics: combinatorics).
+*an autonomous research engine*
 
-Every weekday at 14:00 (server time), the pipeline runs from `cron` — no SSH session or user interaction required:
+Every weekday it runs by itself — no SSH session, no interaction: it reads the day's newly announced arXiv papers across **econ.TH** (economic theory), **cs.GT** (game theory), **cs.DM** (discrete mathematics) and **math.CO** (combinatorics), writes a structured report for every paper, **associates research problems the papers inspire but do not state**, and develops the best of them into LaTeX research drafts — delivered to your inbox nightly.
+
+The **digest layer** runs at 14:00 (server time) on weekdays:
 
 1. **Fetch** every newly announced paper in each category (new submissions + cross-lists)
 2. **Download** the PDF and extract its full text
@@ -103,8 +103,8 @@ See [`examples/sample-report.md`](examples/sample-report.md) and [`examples/samp
 
 ```bash
 # 1. clone anywhere (scripts resolve their own location)
-git clone https://github.com/sammeng5232/arxiv-daily.git
-cd arxiv-daily
+git clone https://github.com/sammeng5232/perpetuum.git
+cd perpetuum
 
 # 2. install python deps (user-level, no root)
 bash setup-deps.sh
@@ -190,7 +190,7 @@ Done. Reports arrive every weekday, whether or not you ever log in again.
 ## Project layout
 
 ```
-arxiv-daily/
+perpetuum/
 ├── run.sh               # one cron run for ONE category (e.g. run.sh cs.GT)
 ├── run-all.sh           # loops over all categories (cron entry point)
 ├── run-ideas.sh         # evening research layer (ideas + drafts + email)

@@ -7,7 +7,10 @@ Config file: mail.conf next to this script, KEY=VALUE lines:
 
 Usage:
   send_mail.py --paper <meta.json> <report.md>   # one email, PDF attached
-  send_mail.py --digest <date> <digest.md>       # summary email, no attachment
+  send_mail.py --digest <date> <digest.md>       # summary email
+Both modes accept --category (subject prefix, default econ.TH).
+--digest also accepts --attach-list <file> (PDF paths, one per line - the
+per-category set written by build_digest) or --attach-dir (all PDFs).
 """
 import argparse
 import html as html_mod
@@ -118,6 +121,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--paper", nargs=2, metavar=("META", "REPORT"))
     ap.add_argument("--digest", nargs=2, metavar=("DATE", "DIGESTMD"))
+    ap.add_argument("--category", default="econ.TH",
+                    help="arXiv category for the subject prefix")
+    ap.add_argument("--attach-list", help="file with PDF paths to attach (one per line, 20MB cap)")
     ap.add_argument("--attach-dir", help="attach all PDFs from this directory (total cap 20MB)")
     args = ap.parse_args()
     conf = load_conf()
@@ -132,7 +138,7 @@ def main():
         report = open(args.paper[1], encoding="utf-8").read()
         title = meta.get("title", "Untitled")
         msg = EmailMessage()
-        msg["Subject"] = f"[arXiv econ.TH] {meta['id']} - {title[:70]}"
+        msg["Subject"] = f"[arXiv {args.category}] {meta['id']} - {title[:70]}"
         msg["From"] = frm
         msg["To"] = to
         msg.set_content(report)
@@ -152,15 +158,20 @@ def main():
         msg = EmailMessage()
         m = re.search(r"Papers announced today \(new \+ cross-lists\): \*\*(\d+)\*\*", body)
         n = m.group(1) if m else None
-        msg["Subject"] = f"[arXiv econ.TH] {date} daily briefing" + (f" - {n} paper" + ("s" if n != "1" else "") if n else "")
+        msg["Subject"] = f"[arXiv {args.category}] {date} daily briefing" + (f" - {n} paper" + ("s" if n != "1" else "") if n else "")
         msg["From"] = frm
         msg["To"] = to
         msg.set_content(body)
         msg.add_alternative(md_to_html(body), subtype="html")
-        if args.attach_dir and os.path.isdir(args.attach_dir):
+        pdfs = []
+        if args.attach_list and os.path.exists(args.attach_list):
+            pdfs = [l.strip() for l in open(args.attach_list)
+                    if l.strip() and os.path.exists(l.strip())]
+        elif args.attach_dir and os.path.isdir(args.attach_dir):
             import glob as _glob
-            total = 0
             pdfs = sorted(_glob.glob(os.path.join(args.attach_dir, "*.pdf")))
+        if pdfs:
+            total = 0
             for pdf in pdfs:
                 with open(pdf, "rb") as f:
                     data = f.read()
@@ -170,7 +181,9 @@ def main():
                 msg.add_attachment(data, maintype="application", subtype="pdf",
                                    filename=os.path.basename(pdf))
                 total += len(data)
-            print(f"[mail] attached {min(len(pdfs), 99)} PDFs, {total} bytes" if pdfs else "[mail] no PDFs to attach")
+            print(f"[mail] attached {len(pdfs)} PDFs, {total} bytes")
+        else:
+            print("[mail] no PDFs to attach")
         send(conf, msg)
         print(f"[mail] SENT daily briefing {date} to {to}")
         return 0

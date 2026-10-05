@@ -17,6 +17,7 @@ EOF
 echo "=== listing-page fallback test (dry: just list ids, no downloads) ==="
 python3 - <<'EOF'
 import fetch_papers
-ids, total = fetch_papers.listing_ids()
-print('LISTING IDS:', ids, '| total ids on page (health signal):', total)
+for cat in ("econ.TH", "cs.GT", "cs.DM", "math.CO"):
+    ids, total = fetch_papers.listing_ids(cat)
+    print(f"{cat}: {len(ids)} new+cross ids | total ids on page (health signal): {total}")
 EOF

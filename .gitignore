@@ -3,6 +3,7 @@ mail.conf
 
 # runtime state & data
 seen.db
+state/
 papers/
 logs/
 locks/

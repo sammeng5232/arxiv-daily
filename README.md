@@ -1,34 +1,49 @@
 # arxiv-daily
 
-Automated daily research digest for arXiv categories (default: **econ.TH**, economic theory).
+Automated daily research digest for arXiv categories: **econ.TH** (economic theory),
+**cs.GT** (computer science: game theory), **cs.DM** (computer science: discrete
+mathematics) and **math.CO** (mathematics: combinatorics).
 
 Every weekday at 14:00 (server time), the pipeline runs from `cron` — no SSH session or user interaction required:
 
-1. **Fetch** every newly announced paper in the category (new submissions + cross-lists)
+1. **Fetch** every newly announced paper in each category (new submissions + cross-lists)
 2. **Download** the PDF and extract its full text
 3. **Generate** a structured report for each paper with an LLM via [Claude Code](https://docs.anthropic.com/en/docs/claude-code) headless mode
-4. **Email** you **one daily briefing** containing every paper's full report, with all PDFs attached
+4. **Email** you **one daily briefing per category** (four emails a day), each containing
+   every paper's full report, with all PDFs attached
+
+For **math.CO**, papers longer than **30 pages** are skipped (not reported, not
+attached); the other three categories include every paper regardless of length.
 
 ```
-                    ┌─────────────────────────────────────────────┐
-                    │  cron: weekdays 14:00 + 21:00 catch-up      │
-                    └──────────────────────┬──────────────────────┘
-                                           │ run.sh (flock-protected)
-        ┌──────────────────────────────────┼──────────────────────────────────┐
-        ▼                                  ▼                                  ▼
- fetch_papers.py                    extract_text.py                      report.py
- arXiv RSS ──fallback──►            PDF → plain text              claude -p (headless)
- arxiv.org/list/<cat>/new           (pypdf)                       structured markdown report
- + Atom API metadata enrichment                                           │
- dedup via seen.db                                                        ▼
-                                                                   send_mail.py
-                                                        one HTML email per weekday:
-                                                        overview + full reports + PDFs
+                    ┌──────────────────────────────────────────────┐
+                    │  cron: weekdays 14:00 + 21:00 catch-up       │
+                    └──────────────────────┬───────────────────────┘
+                                           │ run-all.sh
+                                           │ (econ.TH → cs.GT → cs.DM → math.CO)
+                     ┌─────────────────────┼─────────────────────┐
+                     ▼                     ▼                     ▼
+             fetch_papers.py        extract_text.py         report.py
+             per category:          PDF → plain text        claude -p (headless)
+             arXiv RSS ──fallback►  (pypdf)                 structured markdown report
+             arxiv.org/list/<cat>/new                            │
+             + Atom API metadata                              themes.py
+             dedup via state/<cat>.db                          ▼
+                                                      build_digest.py + send_mail.py
+                                                      one HTML email per category per day:
+                                                      overview + themes + full reports + PDFs
 ```
 
-## The daily briefing email
+Day artifacts (`papers/<DATE>/`) are shared across categories: a paper cross-listed
+into several of your categories is downloaded and reported **once**, and each
+category's digest reuses the same report — no duplicate LLM work, no duplicate
+PDFs, while every email still covers its category completely.
 
-- **Subject:** `[arXiv econ.TH] 2026-10-05 daily briefing - 2 papers`
+## The daily briefing emails
+
+- **Subject:** `[arXiv econ.TH] 2026-10-05 daily briefing - 2 papers` — one such
+  email per category per weekday (`[arXiv cs.GT]`, `[arXiv cs.DM]`,
+  `[arXiv math.CO]`)
 - **Overview** — one entry per paper: title, authors, arXiv link, quoted TL;DR
 - **Today's themes** — one extra LLM call synthesizing common threads, dialogues
   and contrasts across the day's papers (only when 2+ papers)
@@ -37,7 +52,8 @@ Every weekday at 14:00 (server time), the pipeline runs from `cron` — no SSH s
   - Relation to Literature · Comments (strengths / weaknesses / suggestions)
   - **Possible Publication Venues** (ranked, with fit rationale)
   - Tags
-- **Attachments:** every paper's PDF (20 MB total cap)
+- **Attachments:** every paper's PDF (20 MB total cap; math.CO excludes papers
+  over 30 pages)
 
 You also get two health emails:
 - **Heartbeat** (Mondays 09:00): pipeline status, last run time, 7-day and all-time
@@ -76,7 +92,8 @@ nano mail.conf            # SMTP_USER / SMTP_PASS / MAIL_FROM / MAIL_TO
 # 4. test the pieces
 bash dev/smoke-test.sh           # syntax, state, fetch, health, digest (no emails, no LLM)
 bash dev/test-claude.sh          # claude headless works?
-bash run.sh                      # full run (processes today's papers, sends briefing)
+bash run-all.sh                  # full run (all four categories, sends briefings)
+bash run.sh cs.GT                # ...or just one category
 bash dev/check-and-test-mail.sh  # validate mail.conf + send a test email
 
 # 5. install the cron schedule (weekdays 14:00 + 21:00)
@@ -89,58 +106,74 @@ Done. Reports arrive every weekday, whether or not you ever log in again.
 
 | What | Where | Default |
 |---|---|---|
-| arXiv category | `RSS_URL` + listing URL in `fetch_papers.py` | `econ.TH` |
+| Categories | `run-all.sh` (`ARXIV_DAILY_CATEGORIES` or edit the list) | `econ.TH cs.GT cs.DM math.CO` |
+| math.CO page cap | `run.sh` (`MAX_PAGES` in the case block) | 30 pages (other categories: no cap) |
 | Report language/structure | `PROMPT_TEMPLATE` in `report.py` | English, fixed section layout |
 | LLM models | `report.py` (`glm-5.3` default, `glm-5.3-1` / `glm-5.3-2` fallbacks) | change to your endpoint's names |
 | Mail settings | `mail.conf` (gitignored) | Gmail SMTP 587 |
 | Schedule | `install-cron.sh` | weekdays 14:00 + 21:00 catch-up, Monday 09:00 heartbeat |
-| Max papers per run | `MAX_PAPERS` in `fetch_papers.py` | 25 |
+| Max papers per run | `MAX_PAPERS` in `fetch_papers.py` | 25 per category (rest → catch-up run) |
 | Retry attempts per paper | `MAX_ATTEMPTS` in `state.py` | 3 (1 try + 2 retries) |
 | PDF attachment cap | `send_mail.py` | 20 MB |
 
 ## Design notes
 
-- **Exactly-once processing:** processed arXiv IDs are recorded in `seen.db` (TSV:
-  id, status, attempts, date); each paper is reported exactly once, ever. Double
-  runs are therefore harmless.
+- **Exactly-once processing, per category:** processed arXiv IDs are recorded in
+  `state/<category>.db` (TSV: id, status, attempts, date); each paper is reported
+  exactly once per category, ever. Double runs are therefore harmless.
+- **Cross-list reuse:** papers live in a shared per-day directory
+  (`papers/<DATE>/`). A paper cross-listed into two of your categories is
+  processed once (PDF, text, LLM report) and reused by both digests, so you get
+  complete category coverage without duplicate work or duplicate attachments.
+- **Page cap for math.CO:** the PDF page count is recorded in each paper's
+  metadata; math.CO skips papers over 30 pages (state `skip`, excluded from the
+  digest, themes and attachments). Other categories are unaffected — a long
+  paper cross-listed into cs.DM is still reported in the cs.DM email.
 - **Two fetch sources:** the category RSS feed first; if it is empty *or stale*
   (all items already processed), the pipeline consults
   `arxiv.org/list/<cat>/new` (New submissions + Cross-listings, excluding
   Replacements), which goes live earlier than RSS. Metadata (authors, v1 date,
   categories, abstract) comes from the arXiv Atom API.
 - **Bounded retry queue:** a paper whose report fails (LLM timeout, garbled PDF)
-  is marked `fail` with an attempt count and automatically retried on later runs,
-  up to 3 total attempts, after which it is abandoned and noted in the briefing.
+  is marked `fail` with an attempt count and automatically retried on later runs
+  of its category, up to 3 total attempts, after which it is abandoned and noted
+  in the briefing.
 - **Catch-up run at 21:00:** if the 14:00 run missed anything (feed lag, failed
-  download, transient API error), the 21:00 run picks it up the same day. Dedup
-  guarantees no duplicate emails.
-- **Heartbeat:** a Monday-morning email reports pipeline status, last run time and
-  paper statistics. A pipeline that dies stops being silent after at most a week.
+  download, transient API error), the 21:00 run picks it up the same day. A
+  per-category sent marker (`_sent-<category>`) plus re-send-on-new-papers
+  logic guarantees no duplicate emails.
+- **Heartbeat:** a Monday-morning email reports pipeline status, last run per
+  category and paper statistics. A pipeline that dies stops being silent after
+  at most a week.
 - **Empty-fetch canary:** on a weekday, if both the RSS feed and the listing page
-  are unusable (network error, or a page with zero arXiv IDs — a markup-change
-  signal), a throttled warning email is sent (max 1 per 7 days). A genuinely
-  quiet announcement day (healthy page, zero new econ.TH papers) sends nothing.
-- **Day-theme synthesis:** when 2+ papers are reported, one extra LLM call over
-  the TL;DRs produces a "Today's themes" section — common threads, papers that
-  dialogue with each other, methodological contrasts.
-- **Locking:** `flock` prevents overlapping runs.
+  of a category are unusable (network error, or a page with zero arXiv IDs — a
+  markup-change signal), a throttled warning email is sent (max 1 per category
+  per 7 days). A genuinely quiet announcement day (healthy page, zero new
+  papers) sends nothing.
+- **Day-theme synthesis:** when 2+ papers are reported in a category, one extra
+  LLM call over the TL;DRs produces a "Today's themes" section — common threads,
+  papers that dialogue with each other, methodological contrasts.
+- **Locking:** a global `flock` serializes runs (including the four categories),
+  so LLM and arXiv load stays polite.
 - **Failure isolation:** one paper failing never blocks the others.
-- **No-paper days:** if nothing new was announced, no email is sent.
-- **Privacy:** `mail.conf`, `seen.db`, `papers/`, `logs/` are gitignored and never
+- **No-paper days:** if nothing new was announced in a category, that category
+  sends no email.
+- **Privacy:** `mail.conf`, `state/`, `papers/`, `logs/` are gitignored and never
   leave your server.
 
 ## Project layout
 
 ```
 arxiv-daily/
-├── run.sh               # orchestrator (cron entry point)
-├── fetch_papers.py      # RSS + listing-page fetch, retry queue, PDF download
+├── run.sh               # one cron run for ONE category (e.g. run.sh cs.GT)
+├── run-all.sh           # loops over all categories (cron entry point)
+├── fetch_papers.py      # per-category RSS + listing fetch, retry queue, PDF download
 ├── extract_text.py      # PDF → text (pypdf)
 ├── report.py            # LLM report generation via claude -p
 ├── themes.py            # day-theme synthesis (one LLM call over TL;DRs)
-├── build_digest.py      # assembles the daily briefing markdown
+├── build_digest.py      # assembles one category's briefing markdown
 ├── send_mail.py         # markdown → HTML email + PDF attachments
-├── state.py             # seen.db: dedup + bounded retry accounting
+├── state.py             # state/<category>.db: dedup + bounded retry accounting
 ├── health.py            # weekly heartbeat + empty-fetch canary emails
 ├── mail.conf.example    # SMTP config template
 ├── setup-deps.sh        # bootstrap pip + install pypdf/requests (user-level)
@@ -158,7 +191,8 @@ arxiv-daily/
   model name — edit the model list at the top of `report.py`.
 - **No email but logs say papers were processed:** check `logs/<date>.log` for
   `[mail]` lines; SMTP failures exit with a clear reason.
-- **Force a run manually:** `bash run.sh`
+- **Force a run manually:** `bash run-all.sh` (all categories) or
+  `bash run.sh math.CO` (one category)
 
 ## License
 

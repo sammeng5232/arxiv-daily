@@ -1,90 +1,110 @@
 #!/usr/bin/env bash
-# arxiv-daily: fetch new econ.TH papers, generate LLM reports, email one daily briefing.
-# Designed to run under cron (no tty, minimal env). Lock-protected.
-# fetch exit code 2 (= both sources suspiciously empty) triggers a throttled
-# canary email on weekdays via health.py.
+# arxiv-daily: one cron run for ONE category. Usage: run.sh [category]
+# Categories: econ.TH, cs.GT, cs.DM, math.CO (math.CO skips papers > 30 pages).
+# Day artifacts (papers/<DATE>/) are shared across categories: a paper
+# cross-listed into two categories is downloaded and reported once, and both
+# category digests reuse the same report. Processing state is per category
+# (state/<category>.db), so each category retries its own failures.
+# Safe to run repeatedly (flock + per-category state + sent marker).
+# Usually invoked by run-all.sh, which loops over all categories.
 set -u
+CATEGORY="${1:-econ.TH}"
+case "$CATEGORY" in
+    math.CO) MAX_PAGES=30 ;;
+    *)       MAX_PAGES=0  ;;
+esac
+
 HD="$(cd "$(dirname "$0")" && pwd)"
 export ARXIV_DAILY_HOME="$HD"
-export PATH="$HOME/.local/npm-prefix/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
-export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 DATE="$(date +%F)"
-DAY_DIR="$HD/papers/$DATE"
+DAY_DIR="$HD/papers/$DATE"           # shared across categories
+STATE_DB="$HD/state/$CATEGORY.db"    # per-category seen/retry state
 LOG_DIR="$HD/logs"
-mkdir -p "$DAY_DIR" "$LOG_DIR" "$HD/locks"
+mkdir -p "$DAY_DIR/reports" "$HD/state" "$LOG_DIR" "$HD/locks"
+LOG="$LOG_DIR/$DATE.log"
+exec > >(tee -a "$LOG") 2>&1
 
-# --- prevent overlapping runs (14:00 + 21:00 catch-up) ---
+# one run at a time (waits up to 2h for a concurrent run to finish)
 exec 9>"$HD/locks/run.lock"
-flock -n 9 || { echo "[$(date '+%F %T')] another run in progress, exiting"; exit 0; }
+flock -w 7200 9 || { echo "[run:$CATEGORY] lock wait timed out - exiting"; exit 0; }
 
-exec > >(tee -a "$LOG_DIR/$DATE.log") 2>&1
-echo "================ arxiv-daily run $(date '+%F %T') ================"
+echo "[run:$CATEGORY] ===== arxiv-daily $DATE start (max_pages=$MAX_PAGES) ====="
+[ -f "$HD/mail.conf" ] || { echo "[run:$CATEGORY] FATAL: mail.conf missing"; exit 1; }
 
-# --- 1. fetch new papers (JSON list on stdout; rc 2 = suspicious empty) ---
-PAPERS_JSON="$(python3 "$HD/fetch_papers.py" --date-dir "$DAY_DIR")"; FETCH_RC=$?
-COUNT="$(printf '%s' "$PAPERS_JSON" | python3 -c 'import json,sys
-try:
-    print(len(json.load(sys.stdin)))
-except Exception:
-    print(-1)')"
-if [ "$COUNT" = "-1" ]; then
-  echo "[run] FETCH CRASHED (unparseable output) - aborting"
-  DOW=$(date +%u)
-  if [ "$DOW" -le 5 ]; then python3 "$HD/health.py" canary; fi
-  exit 1
-fi
-echo "[run] new papers today: $COUNT"
-if [ "$COUNT" = "0" ]; then
-  if [ "$FETCH_RC" = "2" ]; then
-    DOW=$(date +%u)
-    if [ "$DOW" -le 5 ]; then
-      echo "[run] WARNING: both fetch sources empty/unusable on a weekday - sending canary"
-      python3 "$HD/health.py" canary
+# 1. fetch new papers for this category
+TMPJSON="/tmp/arxiv-papers-${CATEGORY//\./-}-$$.json"
+echo "[run:$CATEGORY] fetching new papers..."
+if python3 "$HD/fetch_papers.py" --date-dir "$DAY_DIR" --category "$CATEGORY" \
+        --state-file "$STATE_DB" --max-pages "$MAX_PAGES" > "$TMPJSON"; then
+    :
+else
+    RC=$?
+    if [ "$RC" -eq 2 ]; then
+        echo "[run:$CATEGORY] suspicious empty fetch - sending canary"
+        python3 "$HD/health.py" canary "$CATEGORY" || true
+        echo "[]" > "$TMPJSON"
     else
-      echo "[run] both fetch sources empty (weekend - no canary)"
+        echo "[run:$CATEGORY] FATAL: fetch failed with rc=$RC"
+        exit 1
     fi
-  else
-    echo "[run] nothing to do."
-  fi
-  exit 0
+fi
+COUNT=$(python3 -c "import json; print(len(json.load(open('$TMPJSON'))))" 2>/dev/null || echo 0)
+echo "[run:$CATEGORY] $COUNT paper(s) to report"
+
+# 2. per-paper: extract text + LLM report (reuse existing report for cross-lists)
+OK=0; FAIL=0
+i=0
+while [ "$i" -lt "$COUNT" ]; do
+    PID=$(python3 -c "import json; print(json.load(open('$TMPJSON'))[$i]['id'])")
+    PDF="$DAY_DIR/$PID.pdf"; TXT="$DAY_DIR/$PID.txt"; REPORT="$DAY_DIR/reports/$PID.md"
+    echo "[run:$CATEGORY] ----- $PID ($((i+1))/$COUNT) -----"
+    if [ -s "$REPORT" ]; then
+        echo "[run:$CATEGORY] report already exists (cross-listed paper) - reusing"
+        python3 "$HD/state.py" --db "$STATE_DB" mark ok "$PID"
+        OK=$((OK+1))
+    else
+        if [ ! -s "$TXT" ]; then
+            python3 "$HD/extract_text.py" "$PDF" "$TXT" \
+                || echo "[run:$CATEGORY] text extraction failed (report will use abstract only)"
+            [ -f "$TXT" ] || : > "$TXT"
+        fi
+        if python3 "$HD/report.py" "$DAY_DIR/$PID.meta.json" "$TXT" "$REPORT"; then
+            python3 "$HD/state.py" --db "$STATE_DB" mark ok "$PID"
+            OK=$((OK+1))
+        else
+            python3 "$HD/state.py" --db "$STATE_DB" mark fail "$PID"
+            FAIL=$((FAIL+1))
+        fi
+    fi
+    i=$((i+1))
+done
+rm -f "$TMPJSON"
+
+# 3. day themes (one extra LLM call over this category's papers)
+if [ "$COUNT" -gt 0 ]; then
+    THEMES="$DAY_DIR/reports/_themes-$CATEGORY.md"
+    python3 "$HD/themes.py" "$DAY_DIR" "$CATEGORY" "$MAX_PAGES" > "$THEMES" || true
+    [ -s "$THEMES" ] || rm -f "$THEMES"
 fi
 
-# --- 2. per paper: extract text, generate report ---
-mkdir -p "$DAY_DIR/reports"
-OK=0; FAIL=0; FAILED_LIST=""
-while IFS= read -r paper_json; do
-  PID="$(printf '%s' "$paper_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-  TITLE="$(printf '%s' "$paper_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["title"])')"
-  echo "---- paper $PID : $TITLE"
+# 4. digest + email (once per category per day; re-sent only if new papers arrived)
+python3 "$HD/build_digest.py" "$DAY_DIR" "$DATE" "$CATEGORY" "$MAX_PAGES"
+DIGEST="$DAY_DIR/reports/_digest-$CATEGORY.md"
+SENT_MARKER="$DAY_DIR/reports/_sent-$CATEGORY"
+NPAPERS=$(grep -o 'announced today (new + cross-lists): \*\*[0-9]*\*\*' "$DIGEST" 2>/dev/null \
+    | grep -o '[0-9]\+' | head -1)
+NPAPERS="${NPAPERS:-0}"
+if [ "$((OK+FAIL))" -gt 0 ] || { [ ! -e "$SENT_MARKER" ] && [ "$NPAPERS" -gt 0 ]; }; then
+    if python3 "$HD/send_mail.py" --digest "$DATE" "$DIGEST" --category "$CATEGORY" \
+            --attach-list "$DAY_DIR/reports/_digest-$CATEGORY.files"; then
+        touch "$SENT_MARKER"
+    else
+        echo "[run:$CATEGORY] WARNING: email sending failed"
+    fi
+else
+    echo "[run:$CATEGORY] nothing new to email (processed=$((OK+FAIL)) announced=$NPAPERS)"
+fi
 
-  TXT="$DAY_DIR/$PID.txt"
-  if [ ! -s "$TXT" ]; then
-    python3 "$HD/extract_text.py" "$DAY_DIR/$PID.pdf" "$TXT" || true
-  fi
-
-  REPORT="$DAY_DIR/reports/$PID.md"
-  if python3 "$HD/report.py" "$DAY_DIR/$PID.meta.json" "$TXT" "$REPORT"; then
-    OK=$((OK+1))
-    python3 "$HD/state.py" mark ok "$PID"
-  else
-    FAIL=$((FAIL+1)); FAILED_LIST="$FAILED_LIST $PID"
-    python3 "$HD/state.py" mark fail "$PID"
-    echo "[run] REPORT FAILED for $PID (marked for retry if attempts remain)"
-  fi
-done < <(printf '%s' "$PAPERS_JSON" | python3 -c '
-import json, sys
-for p in json.load(sys.stdin):
-    print(json.dumps(p))')
-
-# --- 3. day-theme synthesis (one extra LLM call, only when >= 2 reports) ---
-THEMES="$DAY_DIR/reports/_themes.md"
-python3 "$HD/themes.py" "$DAY_DIR" > "$THEMES" || true
-[ -s "$THEMES" ] || rm -f "$THEMES"
-
-# --- 4. build + send the single daily briefing ---
-python3 "$HD/build_digest.py" "$DAY_DIR" "$DATE" "$OK" "$FAIL"
-python3 "$HD/send_mail.py" --digest "$DATE" "$DAY_DIR/reports/_digest.md" --attach-dir "$DAY_DIR" \
-  && echo "[run] daily briefing mailed" || echo "[run] DAILY BRIEFING MAIL not sent (rc=$?)"
-
-echo "[run] done. ok=$OK fail=$FAIL${FAILED_LIST:+ failed:$FAILED_LIST}"
+echo "RUN-DONE ts=$(date +%FT%T) category=$CATEGORY date=$DATE fetched=$COUNT ok=$OK fail=$FAIL"
+echo "[run:$CATEGORY] ===== done ($OK ok, $FAIL fail) ====="
 exit 0

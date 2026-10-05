@@ -17,7 +17,7 @@ MAX_TEXT_CHARS = 160_000
 TIMEOUT_SECS = 900
 CLAUDE_BIN = os.path.expanduser("~/.local/npm-prefix/bin/claude")
 
-PROMPT_TEMPLATE = """You are a research assistant writing a daily briefing report on a newly announced economic-theory paper from arXiv (category econ.TH).
+PROMPT_TEMPLATE = """You are a research assistant writing a daily briefing report on a newly announced arXiv paper (primary category: {primary}; also listed in: {cats}).
 
 Below you receive the paper's bibliographic metadata and its full extracted text (possibly truncated). Write a critical but fair report IN MARKDOWN with EXACTLY these sections, in this order:
 
@@ -51,7 +51,7 @@ Positioning vs. the main strands it builds on or departs from.
 - **Suggestions:** questions a referee or a seminar audience would raise.
 
 ## Possible Publication Venues
-2-4 realistic outlets for this paper, ranked. Draw from (not limited to): Econometrica, AER, ReStud, JET, TE, AEJ:Micro, Games and Economic Behavior, Economic Theory, Journal of Mathematical Economics, Mathematics of Operations Research, Social Choice and Welfare, International Journal of Game Theory, JPE, QJE, plus relevant field journals. For each venue: a fit label (strong fit / plausible / stretch) and a one-line rationale based on the paper's contribution, technical level, and scope.
+2-4 realistic outlets for this paper, ranked. Choose venues appropriate to the paper's field, style and level, drawing e.g. from economic theory (Econometrica, AER, ReStud, JPE, QJE, JET, TE, AEJ:Micro, Games and Economic Behavior, Economic Theory, Journal of Mathematical Economics, Mathematics of Operations Research, Social Choice and Welfare, International Journal of Game Theory, plus field journals), theoretical computer science (EC, WINE, STOC, FOCS, SODA, CCC, ITCS, AAAI, IJCAI, NeurIPS, ICML, JACM, SIAM J. Comput., SIAM J. Discrete Math., Algorithmica), or combinatorics and discrete mathematics (JCTA, JCTB, Combinatorica, J. Comb. Des., Electron. J. Comb., Discrete Math., Order, Adv. Appl. Math.). For each venue: a fit label (strong fit / plausible / stretch) and a one-line rationale based on the paper's contribution, technical level, and scope.
 
 ## Tags
 5-8 lowercase tags (e.g. #auctions #information-design #repeated-games).

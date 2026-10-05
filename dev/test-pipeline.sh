@@ -6,7 +6,8 @@ TD=papers/test-2026-10-05
 mkdir -p "$TD/reports"
 
 echo "=== 1. fetch + PDF download + metadata ==="
-python3 fetch_papers.py --date-dir "$TD" --test-id 2610.03157 > /tmp/test.json
+python3 fetch_papers.py --date-dir "$TD" --category econ.TH \
+    --state-file /tmp/arxiv-test-state.db --test-id 2610.03157 > /tmp/test.json
 python3 - <<'EOF'
 import json
 d = json.load(open('/tmp/test.json'))

@@ -1,0 +1,15 @@
+# arxiv-daily mail configuration
+# Copy to mail.conf and fill in. KEEP SECRET: chmod 600 mail.conf
+#
+# For Gmail:
+#   1. Enable 2-Step Verification on the Google account
+#   2. Create an App Password at https://myaccount.google.com/apppasswords
+#      (16 characters, shown in 4 groups; spaces are stripped automatically)
+#   3. Paste it below. NOTE: your normal Gmail password will NOT work.
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=you@gmail.com
+SMTP_PASS=abcdefghijklmnop
+MAIL_FROM=you@gmail.com
+MAIL_TO=recipient@example.com

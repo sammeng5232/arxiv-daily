@@ -1,0 +1,12 @@
+# secrets & credentials
+mail.conf
+
+# runtime state & data
+seen.db
+papers/
+logs/
+locks/
+
+# python
+__pycache__/
+*.pyc

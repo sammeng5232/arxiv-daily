@@ -64,10 +64,32 @@ def id_from_url(url):
     return m.group(2) if m else None
 
 
+def _get(url, params=None, timeout=60, stream=False, tries=3):
+    """GET with retry/backoff: arXiv throttles bursts with 429s and slow reads."""
+    last_err = None
+    for attempt in range(1, tries + 1):
+        try:
+            r = requests.get(url, params=params, headers=UA, timeout=timeout,
+                             stream=stream)
+            if r.status_code == 429 or r.status_code >= 500:
+                last_err = RuntimeError(f"HTTP {r.status_code}")
+            else:
+                r.raise_for_status()
+                return r
+        except (requests.exceptions.ReadTimeout,
+                requests.exceptions.ConnectionError) as e:
+            last_err = e
+        if attempt < tries:
+            wait = 30 * attempt
+            log(f"{last_err} from {url.split('?')[0]} - backing off {wait}s "
+                f"(attempt {attempt}/{tries})")
+            time.sleep(wait)
+    raise last_err
+
+
 def rss_paper_ids(cat):
     """IDs (new + cross-lists + replacements) from the category RSS feed."""
-    r = requests.get(rss_url(cat), headers=UA, timeout=60)
-    r.raise_for_status()
+    r = _get(rss_url(cat), timeout=60)
     root = ET.fromstring(r.content)
     ids, seen = [], set()
     for item in root.findall("./channel/item"):
@@ -80,8 +102,7 @@ def rss_paper_ids(cat):
 
 def listing_ids(cat):
     """Scrape arxiv.org/list/<cat>/new -> (new+cross IDs, total IDs on page)."""
-    r = requests.get(listing_url(cat), headers=UA, timeout=60)
-    r.raise_for_status()
+    r = _get(listing_url(cat), timeout=120)  # show=2000 pages can be slow
     total = set(re.findall(r"arXiv:(\d{4}\.\d{4,5})", r.text))
     cut = r.text.split("Replacement submissions")[0]  # new + cross only
     ids, seen = [], set()
@@ -97,10 +118,8 @@ def api_enrich(ids):
     meta = {}
     for i in range(0, len(ids), 20):
         batch = ids[i:i + 20]
-        r = requests.get(API_URL, params={"id_list": ",".join(batch),
-                                          "max_results": len(batch)},
-                         headers=UA, timeout=60)
-        r.raise_for_status()
+        r = _get(API_URL, params={"id_list": ",".join(batch),
+                                  "max_results": len(batch)}, timeout=60)
         root = ET.fromstring(r.content)
         for e in root.findall(f"{ATOM}entry"):
             pid = id_from_url(e.findtext(f"{ATOM}id") or "")
@@ -128,10 +147,10 @@ def api_enrich(ids):
 
 
 def download_pdf(pid, dest):
-    r = requests.get(PDF_URL.format(id=pid), headers=UA, timeout=180, stream=True)
-    r.raise_for_status()
+    r = _get(PDF_URL.format(id=pid), timeout=180, stream=True)
     ctype = r.headers.get("Content-Type") or ""
     if "pdf" not in ctype:
+        r.close()
         raise RuntimeError(f"not a PDF (content-type {ctype})")
     tmp = dest + ".part"
     with open(tmp, "wb") as f:

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Day-theme synthesis for one category: one extra LLM call over the day's papers.
 
 Usage: themes.py <day_dir> <category> [max_pages]

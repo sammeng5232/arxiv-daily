@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Turn a research idea into a LaTeX draft scaffold with explicit gaps.
 
 Usage: draft.py <date> <idea_id>

@@ -5,7 +5,7 @@ Usage: report.py <meta.json> <paper.txt> <out.md>
 
 - Builds a structured prompt from metadata + full text (truncated to fit context).
 - Calls: claude -p --model glm-5.3  (stdin prompt, --output-format text)
-- Falls back to glm-5.3-1, then glm-5.3-2 on failure.
+ - Falls back to glm-5.3-1, then glm-5.3-2 on failure.
 """
 import json
 import os

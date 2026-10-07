@@ -258,8 +258,13 @@ def main():
             if total + len(data) > 20_000_000:
                 print(f"[mail] attachment cap reached, skipping {os.path.basename(p)}")
                 continue
-            msg.add_attachment(data, maintype="application",
-                               subtype="pdf" if p.endswith(".pdf") else "plain",
+            if p.endswith(".pdf"):
+                mt, st = "application", "pdf"
+            elif p.endswith(".tex"):
+                mt, st = "text", "x-tex"
+            else:
+                mt, st = "application", "octet-stream"
+            msg.add_attachment(data, maintype=mt, subtype=st,
                                filename=f"{os.path.basename(os.path.dirname(p))}-{os.path.basename(p)}")
             total += len(data)
         print(f"[mail] attached {len(atts)} draft file(s), {total} bytes")

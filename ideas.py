@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Associative research-idea generation over the day's papers.
 
 Stage 1 of the evening research layer (after the 21:00 catch-up):

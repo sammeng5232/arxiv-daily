@@ -11,7 +11,7 @@ LOG="$HD/logs/$DATE.log"
 exec > >(tee -a "$LOG") 2>&1
 
 exec 9>"$HD/locks/run.lock"
-flock -w 7200 9 || { echo "[ideas] lock wait timed out - exiting"; exit 0; }
+flock -w 32400 9 || { echo "[ideas] lock wait timed out (9h) - exiting"; exit 0; }
 
 echo "[ideas] ===== research layer $DATE start ====="
 [ -f "$HD/mail.conf" ] || { echo "[ideas] FATAL: mail.conf missing"; exit 1; }

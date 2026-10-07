@@ -10,10 +10,8 @@ crontab -l 2>/dev/null | grep -v "arxiv-daily" > "$CRON_FILE" || true
 {
     echo "# arxiv-daily: arXiv digests (econ.TH, cs.GT, cs.DM, math.CO) - one email per category per weekday"
     echo "0 14 * * 1-5 $HD/run-all.sh >> $HD/logs/cron.log 2>&1"
-    echo "# arxiv-daily: catch-up run (late announcements, retries; no duplicate emails)"
-    echo "0 21 * * 1-5 $HD/run-all.sh >> $HD/logs/cron.log 2>&1"
-    echo "# arxiv-daily: evening research layer (ideas + LaTeX drafts)"
-    echo "30 21 * * 1-5 bash $HD/run-ideas.sh >> $HD/logs/cron.log 2>&1"
+    echo "# arxiv-daily: evening catch-up THEN research layer (ideas + LaTeX drafts), chained"
+    echo "0 21 * * 1-5 bash -c 'bash $HD/run-all.sh; bash $HD/run-ideas.sh' >> $HD/logs/cron.log 2>&1"
     echo "# arxiv-daily: weekly heartbeat email"
     echo "0 9 * * 1 python3 $HD/health.py heartbeat >> $HD/logs/cron.log 2>&1"
     echo "# arxiv-daily: weekly ideas retrospective"

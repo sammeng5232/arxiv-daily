@@ -141,6 +141,7 @@ def api_enrich(ids):
                 "primary_category": primary,
                 "categories": cats,
                 "abs_url": e.findtext(f"{ATOM}id") or "",
+                "abstract": re.sub(r"\s+", " ", e.findtext(f"{ATOM}summary") or "").strip(),
             }
         time.sleep(3)
     return meta

@@ -9,7 +9,7 @@
   categories, abstract) + PDF page count via pypdf.
 - State: per-category seen db (state/<cat>.db). Failed papers are retried on
   later runs up to state.MAX_ATTEMPTS, then abandoned. Papers longer than
-  --max-pages are marked 'skip' (math.CO > 30 pages by convention).
+  --max-pages are marked 'skip' (math.CO > 15 pages by convention).
 - Day artifacts are SHARED across categories (papers/<DATE>/<id>.*): a paper
   cross-listed into two categories is downloaded and reported once, and its
   report is reused by both category digests.

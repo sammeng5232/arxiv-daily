@@ -1,4 +1,4 @@
-# Perpetuum
+﻿# Perpetuum
 
 *an autonomous research engine*
 
@@ -12,7 +12,7 @@ The **digest layer** runs at 14:00 (server time) on weekdays:
 4. **Email** you **one daily briefing per category** (four emails a day), each containing
    every paper's full report, with all PDFs attached
 
-For **math.CO**, papers longer than **30 pages** are skipped (not reported, not
+For **math.CO**, papers longer than **15 pages** are skipped (not reported, not
 attached); the other three categories include every paper regardless of length.
 
 ```
@@ -78,7 +78,7 @@ enough ideas score 8+).
   - **Possible Publication Venues** (ranked, with fit rationale)
   - Tags
 - **Attachments:** every paper's PDF (20 MB total cap; math.CO excludes papers
-  over 30 pages)
+  over 15 pages)
 
 You also get two health emails:
 - **Heartbeat** (Mondays 09:00): pipeline status, last run time, 7-day and all-time
@@ -132,7 +132,7 @@ Done. Reports arrive every weekday, whether or not you ever log in again.
 | What | Where | Default |
 |---|---|---|
 | Categories | `run-all.sh` (`ARXIV_DAILY_CATEGORIES` or edit the list) | `econ.TH cs.GT cs.DM math.CO` |
-| math.CO page cap | `run.sh` (`MAX_PAGES` in the case block) | 30 pages (other categories: no cap) |
+| math.CO page cap | `run.sh` (`MAX_PAGES` in the case block) | 15 pages (other categories: no cap) |
 | Report language/structure | `PROMPT_TEMPLATE` in `report.py` | English, fixed section layout |
 | LLM models | `report.py` (`glm-5.3` default, `glm-5.3-1` / `glm-5.3-2` fallbacks) | change to your endpoint's names |
 | Mail settings | `mail.conf` (gitignored) | Gmail SMTP 587 |
@@ -152,7 +152,7 @@ Done. Reports arrive every weekday, whether or not you ever log in again.
   processed once (PDF, text, LLM report) and reused by both digests, so you get
   complete category coverage without duplicate work or duplicate attachments.
 - **Page cap for math.CO:** the PDF page count is recorded in each paper's
-  metadata; math.CO skips papers over 30 pages (state `skip`, excluded from the
+  metadata; math.CO skips papers over 15 pages (state `skip`, excluded from the
   digest, themes and attachments). Other categories are unaffected — a long
   paper cross-listed into cs.DM is still reported in the cs.DM email.
 - **Two fetch sources:** the category RSS feed first; if it is empty *or stale*

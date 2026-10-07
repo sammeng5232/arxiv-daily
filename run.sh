@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # arxiv-daily: one cron run for ONE category. Usage: run.sh [category]
-# Categories: econ.TH, cs.GT, cs.DM, math.CO (math.CO skips papers > 30 pages).
+# Categories: econ.TH, cs.GT, cs.DM, math.CO (math.CO skips papers > 15 pages).
 # Day artifacts (papers/<DATE>/) are shared across categories: a paper
 # cross-listed into two categories is downloaded and reported once, and both
 # category digests reuse the same report. Processing state is per category
@@ -10,7 +10,7 @@
 set -u
 CATEGORY="${1:-econ.TH}"
 case "$CATEGORY" in
-    math.CO) MAX_PAGES=30 ;;
+    math.CO) MAX_PAGES=15 ;;
     *)       MAX_PAGES=0  ;;
 esac
 

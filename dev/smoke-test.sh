@@ -82,8 +82,8 @@ json.dump(m, open('$T/0000.00001.meta.json', 'w'), indent=2)
   echo "--- econ.TH digest (today's real papers) ---"
   python3 build_digest.py "$T" "$DATE" econ.TH 0
   head -5 "$T/reports/_digest-econ.TH.md"
-  echo "--- math.CO digest, cap 30 (fake 45-page paper must NOT appear) ---"
-  python3 build_digest.py "$T" "$DATE" math.CO 30
+  echo "--- math.CO digest, cap 15 (fake 45-page paper must NOT appear) ---"
+  python3 build_digest.py "$T" "$DATE" math.CO 15
   if grep -q "0000.00001" "$T/reports/_digest-math.CO.md"; then
       echo "PAGE-CAP-ASSERT-FAILED"; exit 1
   else

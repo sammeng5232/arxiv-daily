@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")/.."
 CAT="${1:-econ.TH}"
 case "$CAT" in
-    math.CO) MAXP=30 ;;
+    math.CO) MAXP=15 ;;
     *)       MAXP=0  ;;
 esac
 

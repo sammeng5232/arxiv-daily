@@ -10,6 +10,7 @@ Usage: report.py <meta.json> <paper.txt> <out.md>
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 
@@ -97,16 +98,26 @@ def run_claude(prompt, model):
     env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
     env["PATH"] = os.path.expanduser("~/.local/npm-prefix/bin:") + env.get("PATH", "")
     try:
-        p = subprocess.run(
+        p = subprocess.Popen(
             [CLAUDE_BIN, "-p", "--model", model, "--output-format", "text"],
-            input=prompt.encode("utf-8", "replace"),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            timeout=TIMEOUT_SECS, env=env,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=env, start_new_session=True,
         )
+    except OSError as e:
+        return None, f"spawn failed: {e}"
+    try:
+        out, err = p.communicate(prompt.encode("utf-8", "replace"), timeout=TIMEOUT_SECS)
     except subprocess.TimeoutExpired:
+        # claude spawns node helpers that inherit the pipes; without killing
+        # the whole process group, communicate() blocks forever on open FDs
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            p.kill()
+        out, err = p.communicate()
         return None, "timeout"
-    out = p.stdout.decode("utf-8", "replace").strip()
-    err = p.stderr.decode("utf-8", "replace")
+    out = out.decode("utf-8", "replace").strip()
+    err = err.decode("utf-8", "replace")
     noise = [l for l in err.splitlines() if l.strip() and "unrecognized_model" not in l and "Warning: no stdin" not in l]
     if p.returncode != 0:
         return None, f"exit={p.returncode} err={' | '.join(noise[-3:])}"
@@ -121,7 +132,8 @@ def main():
     text = open(text_path, encoding="utf-8", errors="replace").read()
     prompt = build_prompt(meta, text)
 
-    for model in ("glm-5.3", "glm-5.3-1", "glm-5.3-2"):
+    for model in tuple(m.strip() for m in os.environ.get(
+        "ARXIV_MODELS", "glm-5.3,glm-5.3-1,glm-5.3-2").split(",") if m.strip()):
         out, info = run_claude(prompt, model)
         if out:
             with open(out_path, "w", encoding="utf-8") as f:

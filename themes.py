@@ -17,7 +17,7 @@ import sys
 MODELS = tuple(m.strip() for m in os.environ.get(
     "ARXIV_MODELS", "glm-5.3,glm-5.3-1,glm-5.3-2").split(",") if m.strip())
 CLAUDE_BIN = os.path.expanduser("~/.local/npm-prefix/bin/claude")
-TIMEOUT_SECS = 900
+TIMEOUT_SECS = int(os.environ.get("ARXIV_TIMEOUT_SECS", "900"))
 
 PROMPT_TEMPLATE = """You are the editor of a daily research briefing on newly announced papers in a given arXiv category (today: {category}). Below is a listing of today's papers with one-line summaries and tags. Write ONE flowing paragraph (3-6 sentences, no heading, no bullet points) that identifies the themes of the day: which questions or techniques come up repeatedly, and how the papers relate to each other. Be concrete and reference papers by arXiv id where it helps. Output only the paragraph.
 

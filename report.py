@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Generate a markdown report for one paper via Claude Code headless (SCRP proxy).
 
 Usage: report.py <meta.json> <paper.txt> <out.md>
@@ -15,7 +15,7 @@ import subprocess
 import sys
 
 MAX_TEXT_CHARS = 160_000
-TIMEOUT_SECS = 900
+TIMEOUT_SECS = int(os.environ.get("ARXIV_TIMEOUT_SECS", "900"))
 CLAUDE_BIN = os.path.expanduser("~/.local/npm-prefix/bin/claude")
 
 PROMPT_TEMPLATE = """You are a research assistant writing a daily briefing report on a newly announced arXiv paper (primary category: {primary}; also listed in: {cats}).

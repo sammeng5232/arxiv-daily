@@ -25,7 +25,7 @@ IDEAS_DIR = os.path.join(HOME_DIR, "ideas")
 MODELS = tuple(m.strip() for m in os.environ.get(
     "ARXIV_MODELS", "glm-5.3,glm-5.3-1,glm-5.3-2").split(",") if m.strip())
 CLAUDE_BIN = os.path.expanduser("~/.local/npm-prefix/bin/claude")
-TIMEOUT_SECS = 1500
+TIMEOUT_SECS = int(os.environ.get("ARXIV_TIMEOUT_SECS", "1500"))
 
 OUTLINE_PROMPT = """You are a researcher planning a paper. You have ONE research idea and the source material it builds on.
 

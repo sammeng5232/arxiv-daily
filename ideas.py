@@ -36,7 +36,7 @@ DB = os.path.join(HOME_DIR, "ideas.db")
 MODELS = tuple(m.strip() for m in os.environ.get(
     "ARXIV_MODELS", "glm-5.3,glm-5.3-1,glm-5.3-2").split(",") if m.strip())
 CLAUDE_BIN = os.path.expanduser("~/.local/npm-prefix/bin/claude")
-TIMEOUT_SECS = 900
+TIMEOUT_SECS = int(os.environ.get("ARXIV_TIMEOUT_SECS", "900"))
 BATCH_SIZE = 10
 
 GEN_PROMPT = """You are a creative but rigorous researcher spanning economic theory, theoretical computer science, and combinatorics. Below are digests of {n} newly announced arXiv papers.
